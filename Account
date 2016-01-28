@@ -1,0 +1,209 @@
+package example.com.myapplication;
+
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.sip.SipAudioCall;
+import android.net.sip.SipException;
+import android.net.sip.SipManager;
+import android.net.sip.SipProfile;
+import android.net.sip.SipRegistrationListener;
+import android.os.Bundle;
+import android.app.Activity;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
+import android.widget.Toast;
+import java.text.ParseException;
+
+public class Account extends Activity  {
+   public SipProfile mSipProfile = null;
+    public SipProfile.Builder builder = null;
+    public SipAudioCall call = null;
+    public SipManager mSipManager = null;
+    public EditText username,password,domain,number;
+    public TextView status;
+    public String samp;
+    String uname,dom,pass;
+    public IncomingCallReceiver callReceiver;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_account);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("example.com.myapplication.INCOMING_CALL");
+        callReceiver = new IncomingCallReceiver();
+        this.registerReceiver(callReceiver, filter);
+        username=(EditText)findViewById(R.id.editTextusername);
+        password=(EditText)findViewById(R.id.editTextPassword);
+        domain=(EditText)findViewById(R.id.editTextDomain);
+        status=(TextView)findViewById(R.id.textView3);
+        number=(EditText)findViewById(R.id.editTextDial);
+        number.setVisibility(View.INVISIBLE);
+        if(mSipManager == null) {
+            mSipManager = SipManager.newInstance(this);
+        }
+        Button b4=(Button)findViewById(R.id.buttonMute);
+       Button b1=(Button)findViewById(R.id.buttonRegReg);
+        Button b2=(Button)findViewById(R.id.buttonRegcancel);
+        Button b5=(Button)findViewById(R.id.buttonEnd);
+        uname = username.getText().toString();
+        dom = domain.getText().toString();
+        pass = password.getText().toString();
+        b2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String temp=number.getText().toString();
+                String add="@10.0.2.51";
+                String sipAddress=temp.concat(add);
+             //String  sipAddress = ("1002@10.0.2.51");
+
+                try {
+                    SipAudioCall.Listener listener = new SipAudioCall.Listener() {
+
+                        @Override
+                        public void onCallEstablished(SipAudioCall call) {
+                            call.setListener(this);
+                            call.startAudio();
+                            //call.setSpeakerMode(true);
+                            if(call.isMuted()) call.toggleMute();
+                            status.setText("Incall");
+                            //Intent intent=new Intent(Account.this,Outgoing.class);
+                            //getApplication().startActivity(intent);
+                        }
+
+                        @Override
+                        public void onCallEnded(SipAudioCall call) {
+                            status.setText("Call End");
+                            Log.d("call","Ended");
+                        }
+                    };
+
+                    call = mSipManager.makeAudioCall(mSipProfile.getUriString(), sipAddress, listener, 30);
+                }
+                catch (Exception e) {
+                    Log.i("call error", "Error when trying to close manager.", e);
+                    if (mSipProfile != null) {
+                        try {
+                            mSipManager.close(mSipProfile.getUriString());
+                        } catch (Exception ee) {
+
+                            ee.printStackTrace();
+                        }
+                    }
+                    if (call != null) {
+                        call.close();
+                    }
+                }
+            }
+            });
+       b1.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    builder = new SipProfile.Builder(uname, dom);
+                    builder.setPassword(pass);
+                    builder.setPort(5060);
+                    builder.setProtocol("UDP");
+                    builder.setSendKeepAlive(true);
+                    builder.setAutoRegistration(true);
+
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                    Toast.makeText(getApplicationContext(), e.toString(), Toast.LENGTH_SHORT).show();
+                }
+                mSipProfile = builder.build();
+                Intent intent = new Intent();
+                intent.setAction("example.com.myapplication.INCOMING_CALL");
+                PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 0, intent, Intent.FILL_IN_ACTION);
+                try {
+                   mSipManager.open(mSipProfile, pi,null);
+                   // mSipManager.open(mSipProfile);
+                } catch (SipException e) {
+                    e.printStackTrace();
+                }
+                try {
+                    mSipManager.setRegistrationListener(mSipProfile.getUriString(), new SipRegistrationListener() {
+                        @Override
+                        public void onRegistering(String localProfileUri) {
+                            //Log.d("Trying", "Register");
+                            status.setText("Trying");
+                        }
+
+                        @Override
+                        public void onRegistrationDone(String localProfileUri, long expiryTime) {
+                            //Log.d("Success", "complete");
+                            status.setText("Success");
+                        }
+
+                        @Override
+                        public void onRegistrationFailed(String localProfileUri, int errorCode, String errorMessage) {
+                          //  Log.d("Failed", Integer.toString(errorCode));
+                            status.setText("Failed");
+                        }
+                    });
+                } catch (SipException e) {
+                    e.printStackTrace();
+                    closeLocalProfile();
+                }
+
+            }
+        });
+        b4.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(call.isMuted()==true)
+                {
+                    call.toggleMute();
+                    status.setText("OnCall");
+                }
+                else if(call.isMuted()==false)
+                {     status.setText("OnMute");
+                    call.toggleMute();
+                }
+            }
+        });
+        b5.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    if (call.isInCall() == true) {
+                        try {
+                            call.endCall();
+                            status.setText("CallEnd");
+                            call.close();
+                        } catch (SipException e) {
+                            e.printStackTrace();
+                        }
+                    } else {
+                        Toast.makeText(getApplicationContext(), "Sorry", Toast.LENGTH_SHORT).show();
+                    }
+                }
+                catch (Exception e)
+                {
+                    Toast.makeText(getApplicationContext(),"Already connection Terminated",Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+    }
+
+    public void status(String temp)
+    {
+        status.setText(temp);
+    }
+    private void closeLocalProfile() {
+        // TODO Auto-generated method stub
+        if (mSipManager == null) {
+            return;
+        }
+        try {
+            if (mSipProfile != null) {
+                mSipManager.close(mSipProfile.getUriString());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
